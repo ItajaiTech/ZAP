@@ -1,3 +1,5 @@
+// Função para remover a sessão e reinicializar o cliente WhatsApp
+// e rotas de logout/reset-qr movidas para depois da criação do app
 const fs = require("fs");
 const path = require("path");
 const express = require("express");
@@ -298,8 +300,8 @@ app.get("/sync", (_req, res) => {
     }
 
     refreshSync();
-    setInterval(refreshSync, 2000);
-  </script>
+              <button class="btn btn-logout" id="btnLogout">Desconectar</button>
+              <button class="btn btn-qr" id="btnQr">Gerar novo QRCode</button>
 </body>
 </html>`);
 });
