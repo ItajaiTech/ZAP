@@ -141,9 +141,9 @@ function buildRmaCaption(rma) {
     `CEP: ${rma.cep || ""}`,
     `End: ${rma.endereco || ""}`,
     `RASTREIO: ${rma.rastreio || ""}`,
-    `NOTA FISCAL DE COMPRA: ${rma.nf_cliente || ""}`,
+    `NF COMPRA: ${rma.nf_cliente || ""}`,
     `DATA NF COMPRA: ${rma.data_compra || ""}`,
-    `NOTA FISCAL DE DEVOLUÇÃO: ${rma.nf_keepdata || ""}`,
+    `NF DEVOL: ${rma.nf_keepdata || ""}`,
     `Nº SÉRIE DO PRODUTO:`,
     produtosLinhas,
     `ESTOQUE RETORNA? : ${rma.estoque_retorna || ""}`
