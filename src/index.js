@@ -2,6 +2,7 @@
 // e rotas de logout/reset-qr movidas para depois da criação do app
 const fs = require("fs");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const express = require("express");
 const qrcode = require("qrcode-terminal");
 const QRCode = require("qrcode");
@@ -31,18 +32,21 @@ const AUTH_DATA_PATH = path.join(__dirname, "..", ".wwebjs_auth");
 const SESSION_DIR = path.join(AUTH_DATA_PATH, "session-rma-zap");
 
 function clearSessionLocks() {
-  // Mata processos Chrome que possam estar travando a sessão
-  const { execSync } = require("child_process");
   try {
-    execSync(
-      `powershell -Command "Get-CimInstance Win32_Process -Filter \\"CommandLine LIKE '%session-rma-zap%'\\" | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"`,
-      { timeout: 10000 }
+    execFileSync(
+      "powershell",
+      [
+        "-NoProfile",
+        "-Command",
+        "Get-CimInstance Win32_Process | Where-Object { $_.Name -match 'chrome|chromium' -and $_.CommandLine -match 'session-rma-zap' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }"
+      ],
+      { timeout: 15000, stdio: "ignore" }
     );
   } catch (_e) {
     // Ignora erros ao matar Chrome
   }
 
-  const lockFiles = ["SingletonLock", "SingletonCookie", "SingletonSocket"];
+  const lockFiles = ["SingletonLock", "SingletonCookie", "SingletonSocket", "DevToolsActivePort", "lockfile"];
   for (const fileName of lockFiles) {
     const lockPath = path.join(SESSION_DIR, fileName);
     try {
@@ -96,6 +100,31 @@ const waClient = new Client({
     )
   }
 });
+
+async function resetSessionAndClient() {
+  waReady = false;
+  lastQrRaw = "";
+  lastQrDataUrl = "";
+
+  try {
+    await waClient.destroy();
+  } catch (_e) {
+    // Cliente pode nao estar inicializado; segue limpeza local mesmo assim.
+  }
+
+  clearSessionLocks();
+
+  try {
+    if (fs.existsSync(SESSION_DIR)) {
+      fs.rmSync(SESSION_DIR, { recursive: true, force: true });
+    }
+  } catch (_e) {
+    // Se algum arquivo ainda estiver preso, a proxima inicializacao gerara novo QR ao menos.
+  }
+
+  initializingClient = false;
+  safeInitializeClient().catch(() => {});
+}
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -237,6 +266,24 @@ app.get("/sync-data", (_req, res) => {
   });
 });
 
+app.post("/logout", async (_req, res) => {
+  try {
+    await resetSessionAndClient();
+    res.json({ ok: true, mensagem: "WhatsApp desconectado. Gere um novo QR para conectar novamente." });
+  } catch (error) {
+    res.status(500).json({ ok: false, erro: error.message });
+  }
+});
+
+app.post("/reset-qr", async (_req, res) => {
+  try {
+    await resetSessionAndClient();
+    res.json({ ok: true, mensagem: "Sessao reiniciada. Aguarde o novo QR Code." });
+  } catch (error) {
+    res.status(500).json({ ok: false, erro: error.message });
+  }
+});
+
 app.get("/sync", (_req, res) => {
   res.status(200).send(`<!doctype html>
 <html lang="pt-BR">
@@ -255,6 +302,10 @@ app.get("/sync", (_req, res) => {
     .qr-wrap img { width: 320px; max-width: 100%; border: 1px solid #d9e0ea; border-radius: 10px; background: #fff; }
     .hint { color: #4a5568; font-size: 14px; margin-top: 14px; }
     .mono { font-family: Consolas, monospace; font-size: 13px; background: #f1f4f9; padding: 2px 6px; border-radius: 4px; }
+    .actions { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+    .btn { border: 0; border-radius: 8px; padding: 10px 14px; font-weight: 600; cursor: pointer; }
+    .btn-logout { background: #fee2e2; color: #991b1b; }
+    .btn-qr { background: #dbeafe; color: #1d4ed8; }
   </style>
 </head>
 <body>
@@ -263,6 +314,10 @@ app.get("/sync", (_req, res) => {
     <div id="status" class="status wait">Aguardando QR...</div>
     <div class="qr-wrap">
       <img id="qr" alt="QR Code WhatsApp" style="display:none;" />
+    </div>
+    <div class="actions">
+      <button class="btn btn-logout" id="btnLogout" type="button">Desconectar</button>
+      <button class="btn btn-qr" id="btnQr" type="button">Gerar novo QRCode</button>
     </div>
     <p class="hint">Abra o WhatsApp no celular: <span class="mono">Aparelhos conectados > Conectar aparelho</span> e escaneie o QR.</p>
     <p class="hint">Esta tela atualiza automaticamente.</p>
@@ -299,9 +354,35 @@ app.get("/sync", (_req, res) => {
       }
     }
 
+    async function postAction(url, button, busyText, doneText) {
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = busyText;
+
+      try {
+        const response = await fetch(url, { method: 'POST' });
+        const data = await response.json();
+        alert(data.mensagem || doneText);
+      } catch (_e) {
+        alert('Nao foi possivel concluir a operacao agora.');
+      } finally {
+        button.disabled = false;
+        button.textContent = original;
+        setTimeout(refreshSync, 1200);
+      }
+    }
+
+    document.getElementById('btnLogout').addEventListener('click', function () {
+      postAction('/logout', this, 'Desconectando...', 'WhatsApp desconectado.');
+    });
+
+    document.getElementById('btnQr').addEventListener('click', function () {
+      postAction('/reset-qr', this, 'Gerando...', 'Novo QR solicitado.');
+    });
+
     refreshSync();
-              <button class="btn btn-logout" id="btnLogout">Desconectar</button>
-              <button class="btn btn-qr" id="btnQr">Gerar novo QRCode</button>
+    setInterval(refreshSync, 2000);
+  </script>
 </body>
 </html>`);
 });
