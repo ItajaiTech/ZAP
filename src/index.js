@@ -31,6 +31,35 @@ let initRetryTimer = null;
 const AUTH_DATA_PATH = path.join(__dirname, "..", ".wwebjs_auth");
 const SESSION_DIR = path.join(AUTH_DATA_PATH, "session-rma-zap");
 
+function resolveBrowserExecutable() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    path.join(
+      process.env.USERPROFILE || process.env.HOME || "",
+      ".cache",
+      "puppeteer",
+      "chrome",
+      "win64-148.0.7778.97",
+      "chrome-win64",
+      "chrome.exe"
+    ),
+    "C:/Program Files/Google/Chrome/Application/chrome.exe",
+    "C:/Program Files (x86)/Google/Chrome/Application/chrome.exe",
+    "C:/Program Files/Microsoft/Edge/Application/msedge.exe",
+    "C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe"
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate && fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  return undefined;
+}
+
+const browserExecutablePath = resolveBrowserExecutable();
+
 function clearSessionLocks() {
   try {
     execFileSync(
@@ -94,10 +123,7 @@ const waClient = new Client({
   puppeteer: {
     headless: true,
     args: ["--no-sandbox", "--disable-setuid-sandbox"],
-    executablePath: path.join(
-      process.env.USERPROFILE || process.env.HOME,
-      ".cache/puppeteer/chrome/win64-148.0.7778.97/chrome-win64/chrome.exe"
-    )
+    executablePath: browserExecutablePath
   }
 });
 
